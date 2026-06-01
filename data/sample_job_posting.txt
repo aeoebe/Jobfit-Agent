@@ -1,0 +1,20 @@
+AI Agent Engineer
+
+Responsibilities:
+- Design and implement LLM-powered agent workflows for internal automation products.
+- Build retrieval-augmented generation pipelines using company documents and user data.
+- Create evaluation datasets and metrics for answer quality, groundedness, and task success.
+- Collaborate with backend engineers to ship FastAPI services.
+
+Required Qualifications:
+- Strong Python programming experience.
+- Experience building LLM applications using OpenAI APIs.
+- Understanding of RAG, vector databases, and prompt engineering.
+- Familiarity with Git and SQL.
+
+Preferred Qualifications:
+- Experience with LangGraph or LangChain.
+- Experience with Chroma, FAISS, or Pinecone.
+- Experience deploying services with Docker or cloud platforms such as AWS.
+- Interest in AI agent observability, tracing, and human-in-the-loop workflows.
+
