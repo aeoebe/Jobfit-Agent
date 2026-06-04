@@ -6,14 +6,21 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from core.job_parser import ParsedJobPosting, parse_job_posting
-from core.llm_generation import (
+from llm.llm_generation import (
     generate_learning_plan_with_llm,
     generate_report_with_llm,
     generate_resume_suggestions_with_llm,
+    generate_cover_letter_with_llm,
+    critique_cover_letter_with_llm,
+    has_real_openai_api_key
 )
-from core.llm_job_parser import parse_job_posting_with_llm
+from llm.llm_job_parser import parse_job_posting_with_llm
 from core.matcher import RequirementMatch, match_job_to_profile, summarize_matches
+from core.tool_calling_matcher import match_with_tool_calling
 from core.profile_loader import ProfileDocument
+
+MAX_REVISIONS = 3
+PASSING_SCORE = 75
 
 
 @dataclass
@@ -45,6 +52,12 @@ class JobFitState(TypedDict, total=False):
     resume_suggestions_approved: bool
     final_report: str
     trace: list[str]
+    cover_letter: str
+    critic_feedback: str
+    critic_score: int
+    revision_count: int
+    final_report: str
+    trace: list[str]
 
 
 def parse_job_node(state: JobFitState) -> dict[str, Any]:
@@ -65,17 +78,26 @@ def parse_job_node(state: JobFitState) -> dict[str, Any]:
 
 
 def match_profile_node(state: JobFitState) -> dict[str, Any]:
-    matches = match_job_to_profile(
-        parsed_job=state["parsed_job"],
-        profile_documents=state.get("profile_documents", []),
-        use_vector_retrieval=state.get("use_vector_retrieval", False),
-        embedding_provider=state.get("embedding_provider", "local"),
-    )
-    retrieval_name = (
-        f"vector/{state.get('embedding_provider', 'local')}"
-        if state.get("use_vector_retrieval")
-        else "keyword"
-    )
+    if state.get("use_llm") and has_real_openai_api_key():
+        matches = match_with_tool_calling(
+            parsed_job=state["parsed_job"],
+            profile_documents=state.get("profile_documents", []),
+            model=state.get("model", "gpt-4o-mini"),
+            embedding_provider=state.get("embedding_provider", "local"),
+        )
+        retrieval_name = f"tool_calling/{state.get('embedding_provider', 'local')}"
+    else:
+        matches = match_job_to_profile(
+            parsed_job=state["parsed_job"],
+            profile_documents=state.get("profile_documents", []),
+            use_vector_retrieval=state.get("use_vector_retrieval", False),
+            embedding_provider=state.get("embedding_provider", "local"),
+        )
+        retrieval_name = (
+            f"vector/{state.get('embedding_provider', 'local')}"
+            if state.get("use_vector_retrieval")
+            else "keyword"
+        )
 
     return {
         "matches": matches,
@@ -195,6 +217,75 @@ def wait_for_approval_node(state: JobFitState) -> dict[str, Any]:
         "trace": append_trace(state, f"wait_for_approval: resume suggestions are {status}"),
     }
 
+def draft_cover_letter_node(state: JobFitState) -> dict[str, Any]:
+    revision = state.get("revision_count", 0)
+    matched_requirements = [
+        m.requirement
+        for m in state.get("matches", [])
+        if not m.gap
+    ]
+    
+    gaps = state.get("gaps", [])
+    cover_letter = ""
+    used_llm = False
+ 
+    if state.get("use_llm_generation"):
+        cover_letter, used_llm = generate_cover_letter_with_llm(
+            parsed_job=state["parsed_job"],
+            matches=state.get("matches", []),
+            gaps=gaps,
+            model=state.get("model", "gpt-4o-mini"),
+            critic_feedback=state.get("critic_feedback", ""),
+        )
+ 
+    if not cover_letter:
+        cover_letter = _template_cover_letter(
+            role=state["parsed_job"].role,
+            matched=matched_requirements,
+            gaps=gaps,
+        )
+ 
+    generator_name = "llm" if used_llm else "template"
+    return {
+        "cover_letter": cover_letter,
+        "revision_count": revision + 1,
+        "trace": append_trace(state, f"draft_cover_letter: revision #{revision + 1} with {generator_name}"),
+    }
+ 
+ 
+def critic_node(state: JobFitState) -> dict[str, Any]:
+    cover_letter = state.get("cover_letter", "")
+    score = PASSING_SCORE
+    feedback = ""
+    used_llm = False
+ 
+    if state.get("use_llm_generation"):
+        score, feedback, used_llm = critique_cover_letter_with_llm(
+            parsed_job=state["parsed_job"],
+            cover_letter=cover_letter,
+            model=state.get("model", "gpt-4o-mini"),
+        )
+ 
+    if not used_llm:
+        score = PASSING_SCORE
+        feedback = "Template evaluation: skipping LLM critic."
+ 
+    return {
+        "critic_score": score,
+        "critic_feedback": feedback,
+        "trace": append_trace(
+            state,
+            f"critic: scored cover letter {score}/100 (revision #{state.get('revision_count', 0)}) with {'llm' if used_llm else 'template'}",
+        ),
+    }
+ 
+def should_revise(state: JobFitState) -> str:
+    score = state.get("critic_score", 0)
+    revision_count = state.get("revision_count", 0)
+ 
+    if score >= PASSING_SCORE or revision_count >= MAX_REVISIONS:
+        return "generate_report"
+    return "draft_cover_letter"
 
 def generate_report_node(state: JobFitState) -> dict[str, Any]:
     template_report = build_final_report(
@@ -206,6 +297,9 @@ def generate_report_node(state: JobFitState) -> dict[str, Any]:
         learning_plan=state.get("learning_plan", []),
         resume_suggestions=state.get("resume_suggestions", []),
         resume_suggestions_approved=state.get("resume_suggestions_approved", False),
+        cover_letter=state.get("cover_letter", ""),
+        critic_score=state.get("critic_score"),
+        revision_count=state.get("revision_count", 0),
     )
     report = template_report
     used_llm = False
@@ -233,6 +327,8 @@ def build_jobfit_graph():
     graph.add_node("generate_learning_plan", generate_learning_plan_node)
     graph.add_node("suggest_resume_edits", suggest_resume_edits_node)
     graph.add_node("wait_for_approval", wait_for_approval_node)
+    graph.add_node("draft_cover_letter", draft_cover_letter_node)
+    graph.add_node("critic", critic_node)
     graph.add_node("generate_report", generate_report_node)
 
     graph.add_edge(START, "parse_job")
@@ -248,7 +344,16 @@ def build_jobfit_graph():
     )
     graph.add_edge("generate_learning_plan", "generate_report")
     graph.add_edge("suggest_resume_edits", "wait_for_approval")
-    graph.add_edge("wait_for_approval", "generate_report")
+    graph.add_edge("wait_for_approval", "draft_cover_letter")
+    graph.add_edge("draft_cover_letter", "critic")
+    graph.add_conditional_edges(
+        "critic",
+        should_revise,
+        {
+            "draft_cover_letter": "draft_cover_letter",
+            "generate_report": "generate_report",
+        },
+    )
     graph.add_edge("generate_report", END)
 
     return graph.compile()
@@ -275,6 +380,7 @@ def run_jobfit_workflow(
             "embedding_provider": embedding_provider,
             "model": model,
             "resume_suggestions_approved": resume_suggestions_approved,
+            "revision_count": 0,
             "trace": [],
         }
     )
@@ -282,6 +388,30 @@ def run_jobfit_workflow(
 
 def append_trace(state: JobFitState, message: str) -> list[str]:
     return [*state.get("trace", []), message]
+
+def _template_cover_letter(
+    role: str,
+    matched: list[str],
+    gaps: list[str],
+) -> str:
+    lines = [
+        "Dear Hiring Manager,",
+        "",
+        f"I am writing to apply for the {role} position.",
+        "",
+    ]
+    if matched:
+        lines.append(f"My experience includes: {', '.join(matched[:5])}.")
+        lines.append("")
+    if gaps:
+        lines.append(f"I am actively developing skills in: {', '.join(gaps[:3])}.")
+        lines.append("")
+    lines.append("I look forward to discussing how I can contribute to your team.")
+    lines.append("")
+    lines.append("Sincerely,")
+    lines.append("[Your Name]")
+ 
+    return "\n".join(lines)
 
 
 def build_final_report(
@@ -293,6 +423,9 @@ def build_final_report(
     learning_plan: list[str] | None = None,
     resume_suggestions: list[ResumeSuggestion] | None = None,
     resume_suggestions_approved: bool = False,
+    cover_letter: str = "",
+    critic_score: int | None = None,
+    revision_count: int = 0,
 ) -> str:
     matched = [match for match in matches if not match.gap]
     learning_plan = learning_plan or []
@@ -351,6 +484,13 @@ def build_final_report(
                 lines.append(f"- {suggestion.suggested_bullet}")
             else:
                 lines.append(f"- Pending approval: {suggestion.requirement}")
+
+    if cover_letter:
+        lines.extend(["", "## Cover Letter", ""])
+        if critic_score is not None:
+            lines.append(f"*Critic score: {critic_score}/100 — revised {revision_count} time(s)*")
+            lines.append("")
+        lines.append(cover_letter)
 
     return "\n".join(lines)
 

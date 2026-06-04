@@ -47,7 +47,7 @@ def load_uploaded_profile_documents(uploaded_files) -> list[ProfileDocument]:
 
 st.set_page_config(
     page_title="JobFit Agent",
-    page_icon="JF",
+    page_icon="🤖",
     layout="wide",
 )
 

@@ -1,6 +1,6 @@
 import pytest
 
-from core.llm_job_parser import (
+from llm.llm_job_parser import (
     LLMJobParserError,
     payload_to_parsed_job_posting,
     validate_job_posting_payload,
