@@ -65,6 +65,7 @@ with st.sidebar:
         """
     )
     use_sample = st.toggle("Use sample posting", value=True)
+    llm_provider = st.selectbox("LLM provider", options=["openai", "ollama"], index=0)
     use_llm = st.toggle("Use LLM parser", value=False)
     use_llm_generation = st.toggle("Use LLM generation", value=False)
     model = st.text_input("OpenAI model", value="gpt-4o-mini", disabled=not use_llm)
@@ -73,7 +74,7 @@ with st.sidebar:
     use_vector_retrieval = st.toggle("Use vector retrieval", value=True)
     embedding_provider = st.selectbox(
         "Embedding provider",
-        options=["local", "openai"],
+        options=["local", "openai", "ollama"],
         index=0,
         disabled=not use_vector_retrieval,
     )
@@ -113,6 +114,7 @@ if analyze:
             use_llm=use_llm,
             use_vector_retrieval=use_vector_retrieval,
             use_llm_generation=use_llm_generation,
+            llm_provider=llm_provider,
             embedding_provider=embedding_provider,
             model=model,
             resume_suggestions_approved=approve_resume_suggestions,

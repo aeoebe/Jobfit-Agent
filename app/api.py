@@ -56,6 +56,7 @@ def get_sample_posting() -> dict:
 class ParseRequest(BaseModel):
     job_posting: str
     use_llm: bool = False
+    llm_provider: str = "openai"
     model: str = "gpt-4o-mini"
 
 
@@ -66,7 +67,7 @@ class ParseRequest(BaseModel):
 )
 def parse(req: ParseRequest) -> dict:
     if req.use_llm:
-        parsed = parse_job_posting_with_llm(req.job_posting, model=req.model)
+        parsed = parse_job_posting_with_llm(req.job_posting, model=req.model, llm_provider=req.llm_provider)
     else:
         parsed = parse_job_posting(req.job_posting)
     return parsed.model_dump()
@@ -75,6 +76,7 @@ def parse(req: ParseRequest) -> dict:
 class MatchRequest(BaseModel):
     job_posting: str
     use_llm: bool = False
+    llm_provider: str = "openai"
     use_vector_retrieval: bool = False
     embedding_provider: str = "local"
     model: str = "gpt-4o-mini"
@@ -88,7 +90,7 @@ class MatchRequest(BaseModel):
 )
 def match(req: MatchRequest) -> dict:
     if req.use_llm:
-        parsed = parse_job_posting_with_llm(req.job_posting, model=req.model)
+        parsed = parse_job_posting_with_llm(req.job_posting, model=req.model, llm_provider=req.llm_provider)
     else:
         parsed = parse_job_posting(req.job_posting)
 
@@ -112,6 +114,7 @@ def match(req: MatchRequest) -> dict:
 class AnalyzeRequest(BaseModel):
     job_posting: str
     use_llm: bool = False
+    llm_provider: str = "openai"
     use_vector_retrieval: bool = False
     use_llm_generation: bool = False
     embedding_provider: str = "local"
@@ -123,6 +126,7 @@ class AnalyzeRequest(BaseModel):
 def _run_analyze(
     job_posting: str,
     use_llm: bool,
+    llm_provider: str,
     use_vector_retrieval: bool,
     use_llm_generation: bool,
     embedding_provider: str,
@@ -141,6 +145,7 @@ def _run_analyze(
         job_posting=job_posting,
         profile_documents=profile_documents,
         use_llm=use_llm,
+        llm_provider=llm_provider,
         use_vector_retrieval=use_vector_retrieval,
         use_llm_generation=use_llm_generation,
         embedding_provider=embedding_provider,
@@ -155,6 +160,9 @@ def _run_analyze(
         "next_step": result.get("next_step", ""),
         "learning_plan": result.get("learning_plan", []),
         "resume_suggestions": [s.model_dump() for s in result.get("resume_suggestions", [])],
+        "cover_letter": result.get("cover_letter", ""),
+        "critic_score": result.get("critic_score"),
+        "revision_count": result.get("revision_count", 0),
         "final_report": result.get("final_report", ""),
         "trace": result.get("trace", []),
     }
@@ -169,6 +177,7 @@ def analyze(req: AnalyzeRequest) -> dict:
     return _run_analyze(
         job_posting=req.job_posting,
         use_llm=req.use_llm,
+        llm_provider=req.llm_provider,
         use_vector_retrieval=req.use_vector_retrieval,
         use_llm_generation=req.use_llm_generation,
         embedding_provider=req.embedding_provider,
@@ -186,6 +195,7 @@ def analyze(req: AnalyzeRequest) -> dict:
 async def analyze_with_upload(
     job_posting: str = Form(...),
     use_llm: bool = Form(False),
+    llm_provider: str = Form("openai"),
     use_vector_retrieval: bool = Form(False),
     use_llm_generation: bool = Form(False),
     embedding_provider: str = Form("local"),
@@ -202,6 +212,7 @@ async def analyze_with_upload(
     return _run_analyze(
         job_posting=job_posting,
         use_llm=use_llm,
+        llm_provider=llm_provider,
         use_vector_retrieval=use_vector_retrieval,
         use_llm_generation=use_llm_generation,
         embedding_provider=embedding_provider,

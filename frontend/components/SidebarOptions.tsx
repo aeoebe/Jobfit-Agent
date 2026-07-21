@@ -28,6 +28,19 @@ export default function SidebarOptions({
       {/* Parser */}
       <div className="space-y-2">
         <h2 className="text-sm font-semibold text-gray-700">Parser</h2>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-600">
+            LLM provider
+          </label>
+          <select
+            value={options.llm_provider}
+            onChange={(e) => onChange({ llm_provider: e.target.value })}
+            className="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+          >
+            <option value="openai">openai</option>
+            <option value="ollama">ollama</option>
+          </select>
+        </div>
         <Toggle
           label="Use LLM parser"
           checked={options.use_llm}
@@ -90,6 +103,7 @@ export default function SidebarOptions({
         >
           <option value="local">local</option>
           <option value="openai">openai</option>
+          <option value="ollama">ollama</option>
         </select>
       </div>
 

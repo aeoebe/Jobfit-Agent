@@ -26,6 +26,7 @@ const TABS = [
 
 const DEFAULT_OPTIONS: Omit<AnalyzeRequest, "job_posting"> = {
   use_llm: false,
+  llm_provider: "openai",
   use_vector_retrieval: true,
   use_llm_generation: false,
   embedding_provider: "local",
@@ -60,8 +61,15 @@ export default function Home() {
       const data = await analyzeJobPosting({ job_posting: jobPosting, ...options });
       setResult(data);
       setActiveTab("analysis");
-    } catch (e: any) {
-      setError(e?.response?.data?.detail || "Something went wrong. Is the FastAPI server running?");
+    } catch (e: unknown) {
+      const detail =
+        typeof e === "object" &&
+        e !== null &&
+        "response" in e &&
+        typeof (e as { response?: { data?: { detail?: string } } }).response?.data?.detail === "string"
+          ? (e as { response: { data: { detail: string } } }).response.data.detail
+          : "Something went wrong. Is the FastAPI server running?";
+      setError(detail);
     } finally {
       setLoading(false);
     }

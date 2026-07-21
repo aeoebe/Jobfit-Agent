@@ -40,6 +40,7 @@ class JobFitState(TypedDict, total=False):
     use_llm: bool
     use_vector_retrieval: bool
     use_llm_generation: bool
+    llm_provider: str
     embedding_provider: str
     model: str
     parsed_job: ParsedJobPosting
@@ -65,8 +66,9 @@ def parse_job_node(state: JobFitState) -> dict[str, Any]:
         parsed_job = parse_job_posting_with_llm(
             state["job_posting"],
             model=state.get("model", "gpt-4o-mini"),
+            llm_provider=state.get("llm_provider", "openai"),
         )
-        parser_name = "llm_structured_output_parser"
+        parser_name = f"{state.get('llm_provider', 'openai')}_structured_output_parser"
     else:
         parsed_job = parse_job_posting(state["job_posting"])
         parser_name = "rule_based_parser"
@@ -78,7 +80,7 @@ def parse_job_node(state: JobFitState) -> dict[str, Any]:
 
 
 def match_profile_node(state: JobFitState) -> dict[str, Any]:
-    if state.get("use_llm") and has_real_openai_api_key():
+    if state.get("use_llm") and state.get("llm_provider", "openai") == "openai" and has_real_openai_api_key():
         matches = match_with_tool_calling(
             parsed_job=state["parsed_job"],
             profile_documents=state.get("profile_documents", []),
@@ -132,6 +134,7 @@ def generate_learning_plan_node(state: JobFitState) -> dict[str, Any]:
             parsed_job=state["parsed_job"],
             gaps=gaps,
             model=state.get("model", "gpt-4o-mini"),
+            llm_provider=state.get("llm_provider", "openai"),
         )
 
     if not learning_plan:
@@ -165,6 +168,7 @@ def suggest_resume_edits_node(state: JobFitState) -> dict[str, Any]:
             parsed_job=state["parsed_job"],
             matches=state.get("matches", []),
             model=state.get("model", "gpt-4o-mini"),
+            llm_provider=state.get("llm_provider", "openai"),
         )
         if llm_suggestions:
             evidence_by_requirement = {
@@ -236,6 +240,7 @@ def draft_cover_letter_node(state: JobFitState) -> dict[str, Any]:
             gaps=gaps,
             model=state.get("model", "gpt-4o-mini"),
             critic_feedback=state.get("critic_feedback", ""),
+            llm_provider=state.get("llm_provider", "openai"),
         )
  
     if not cover_letter:
@@ -264,6 +269,7 @@ def critic_node(state: JobFitState) -> dict[str, Any]:
             parsed_job=state["parsed_job"],
             cover_letter=cover_letter,
             model=state.get("model", "gpt-4o-mini"),
+            llm_provider=state.get("llm_provider", "openai"),
         )
  
     if not used_llm:
@@ -308,6 +314,7 @@ def generate_report_node(state: JobFitState) -> dict[str, Any]:
         llm_report, used_llm = generate_report_with_llm(
             template_report=template_report,
             model=state.get("model", "gpt-4o-mini"),
+            llm_provider=state.get("llm_provider", "openai"),
         )
         if llm_report:
             report = llm_report
@@ -365,6 +372,7 @@ def run_jobfit_workflow(
     use_llm: bool = False,
     use_vector_retrieval: bool = False,
     use_llm_generation: bool = False,
+    llm_provider: str = "openai",
     embedding_provider: str = "local",
     model: str = "gpt-4o-mini",
     resume_suggestions_approved: bool = False,
@@ -377,6 +385,7 @@ def run_jobfit_workflow(
             "use_llm": use_llm,
             "use_vector_retrieval": use_vector_retrieval,
             "use_llm_generation": use_llm_generation,
+            "llm_provider": llm_provider,
             "embedding_provider": embedding_provider,
             "model": model,
             "resume_suggestions_approved": resume_suggestions_approved,

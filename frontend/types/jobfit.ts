@@ -49,6 +49,7 @@ export interface AnalyzeResult {
 export interface AnalyzeRequest {
   job_posting: string;
   use_llm: boolean;
+  llm_provider: string;
   use_vector_retrieval: boolean;
   use_llm_generation: boolean;
   embedding_provider: string;

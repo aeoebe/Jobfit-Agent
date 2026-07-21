@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
 from jsonschema import validate
 from jsonschema.exceptions import ValidationError
-from openai import OpenAI
 
 from core.job_parser import ParsedJobPosting, parse_job_posting
 from llm.schema import JOB_POSTING_SCHEMA
 from llm.prompts import JOB_PARSING_PROMPT
+from llm.providers import get_llm_provider, LLMProviderUnavailable
 
 
 class LLMJobParserError(RuntimeError):
@@ -20,6 +19,7 @@ class LLMJobParserError(RuntimeError):
 def parse_job_posting_with_llm(
     text: str,
     model: str = "gpt-4o-mini",
+    llm_provider: str = "openai",
     fallback_to_rules: bool = True,
 ) -> ParsedJobPosting:
     """Parse a job posting with OpenAI Structured Outputs.
@@ -29,7 +29,7 @@ def parse_job_posting_with_llm(
     validation fails, the rule-based parser can be used as a fallback.
     """
     try:
-        parsed_dict = request_structured_parse(text=text, model=model)
+        parsed_dict = request_structured_parse(text=text, model=model, llm_provider=llm_provider)
         validate_job_posting_payload(parsed_dict)
         return payload_to_parsed_job_posting(parsed_dict, raw_text_length=len(text))
     except Exception as exc:
@@ -38,32 +38,18 @@ def parse_job_posting_with_llm(
         raise LLMJobParserError(str(exc)) from exc
 
 
-def request_structured_parse(text: str, model: str) -> dict[str, Any]:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise LLMJobParserError("OPENAI_API_KEY is not set.")
-
-    client = OpenAI()
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": JOB_PARSING_PROMPT.strip()},
-            {"role": "user", "content": text},
-        ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "job_posting_parse",
-                "strict": True,
-                "schema": JOB_POSTING_SCHEMA,
-            },
-        },
-    )
-
-    content = response.choices[0].message.content
-    if not content:
-        raise LLMJobParserError("Model returned an empty response.")
-
-    return json.loads(content)
+def request_structured_parse(text: str, model: str, llm_provider: str) -> dict[str, Any]:
+    try:
+        provider = get_llm_provider(llm_provider)
+        return provider.generate_structured(
+            model=model,
+            schema_name="job_posting_parse",
+            schema=JOB_POSTING_SCHEMA,
+            system_prompt=JOB_PARSING_PROMPT.strip(),
+            user_prompt=text,
+        )
+    except (LLMProviderUnavailable, json.JSONDecodeError) as exc:
+        raise LLMJobParserError(str(exc)) from exc
 
 
 def validate_job_posting_payload(payload: dict[str, Any]) -> None:
@@ -83,4 +69,3 @@ def payload_to_parsed_job_posting(payload: dict[str, Any], raw_text_length: int)
         keywords=payload["keywords"],
         raw_text_length=raw_text_length,
     )
-

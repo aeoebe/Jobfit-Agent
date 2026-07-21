@@ -7,6 +7,7 @@ import os
 import uuid
 
 from core.profile_loader import ProfileDocument, split_profile_documents
+from llm.providers import get_llm_provider, LLMProviderUnavailable
 
 
 VECTOR_DIMENSIONS = 128
@@ -94,6 +95,8 @@ def create_chroma_collection():
 def embed_text(text: str, provider: str = "local") -> list[float]:
     if provider == "openai":
         return embed_text_with_openai(text)
+    if provider == "ollama":
+        return embed_text_with_ollama(text)
     return embed_text_locally(text)
 
 
@@ -111,6 +114,14 @@ def embed_text_with_openai(text: str) -> list[float]:
     model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
     response = client.embeddings.create(model=model, input=text)
     return response.data[0].embedding
+
+
+def embed_text_with_ollama(text: str) -> list[float]:
+    model = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+    try:
+        return get_llm_provider("ollama").embed(text=text, model=model)
+    except LLMProviderUnavailable as exc:
+        raise VectorStoreUnavailable(str(exc)) from exc
 
 
 def embed_text_locally(text: str) -> list[float]:
